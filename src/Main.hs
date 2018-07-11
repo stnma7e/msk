@@ -2,37 +2,36 @@ module Main
 ( main
 ) where
 
+import Debug.Trace
+
 import Codec.Wav (importFile)
 import Data.Audio (Audio(..))
-import Data.Array.Unboxed as AU (elems, UArray)
-import Data.Complex (Complex(..))
-import Data.Int (Int64)
-import Numeric.Transform.Fourier.FFT (fft)
-import Data.Array.IArray (Array(..), array)
-import Control.Monad
-import Control.Concurrent
 
-type WordSize = Int64
+import Data.Array.Unboxed (elems, assocs)
+import Data.Array.IArray (Array(..), listArray, array)
+import Data.Complex (magnitude)
+import Data.Int (Int64, Int32, Int16, Int8)
+
+import Common (importantFrequencies, breakChunks, slice)
+import SongId (ft, mapChunk2Freqs, chunkIdentifier)
+
+type WordSize = Int32
 chunkSize = 5000
-files = ["05 I Will Follow You Into The Dark.wav", "06 Step Right Up.wav"]
+file = ""
 
 main :: IO ()
-main = foldl (\acc x -> acc >> x) (return ()) $ flip map files $ \filename -> do
-    input <- importFile filename
-    case input :: Either String (Audio WordSize) of
-        Left err -> putStrLn err
-        Right a@(Audio _ _ samples) -> do
-            print a
-            let fts = ft samples
-            print $ length fts
+main = do
+    input <- importFile file
+    song_dft <- case input :: Either String (Audio WordSize) of
+        Left err -> do
+            putStrLn err
+            return [(array (0,0) [])]
+        Right a@(Audio _ _ samples) -> return (ft chunkSize samples)
 
-ft :: UArray Int WordSize -> [Array Int (Complex Double)]
-ft samples = map fft chunks
-    where chunks = map (\x -> array (0, length x - 1) x) $ map (zip [0..chunkSize - 1]) elements
-          elements = breakChunks $ map convertToComplex $ elems samples
-          convertToComplex = (\v -> (fromIntegral v) :+ 0)
+    putStrLn $ show (length song_dft) ++ " " ++ show (length . elems $ head song_dft)
 
-breakChunks :: [a] -> [[a]]
-breakChunks [] = []
-breakChunks y = let (x, xs) = splitAt chunkSize y
-                in x : (breakChunks xs)
+    let ys = map (mapChunk2Freqs . elems) song_dft
+
+    let freqs = importantFrequencies 5 (8 * chunkSize `quot` 50 `quot` 2)
+    let chunks = map (chunkIdentifier freqs) ys
+    foldl (\acc x -> acc >> print x) (return ()) $ chunks
